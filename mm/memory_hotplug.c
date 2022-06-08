@@ -608,7 +608,7 @@ static void online_pages_range(unsigned long start_pfn, unsigned long nr_pages)
 	 * this and the first chunk to online will be pageblock_nr_pages.
 	 */
 	for (pfn = start_pfn; pfn < end_pfn;) {
-		int order = min(MAX_ORDER - 1UL, __ffs(pfn));
+		int order = min(MAX_ORDER - 1UL, get_order(PFN_PHYS(end_pfn - pfn)));
 
 		(*online_page_callback)(pfn_to_page(pfn), order);
 		pfn += (1UL << order);
@@ -1070,6 +1070,78 @@ void mhp_deinit_memmap_on_memory(unsigned long pfn, unsigned long nr_pages)
 	remove_pfn_range_from_zone(page_zone(pfn_to_page(pfn)), pfn, nr_pages);
 	kasan_remove_zero_shadow(__va(PFN_PHYS(pfn)), PFN_PHYS(nr_pages));
 }
+
+/* UPMEM */
+int __ref expose_mram_pages(unsigned long pfn, unsigned long nr_pages,
+		       struct zone *zone, struct memory_group *group)
+{
+	unsigned long flags, pfn_it;
+	int need_zonelists_rebuild = 0;
+	const int nid = zone_to_nid(zone);
+	int ret;
+	struct memory_notify arg;
+
+	if (WARN_ON_ONCE(!nr_pages ||
+			 !IS_ALIGNED(pfn, pageblock_nr_pages) ||
+			 !IS_ALIGNED(pfn + nr_pages, PAGES_PER_SECTION)))
+		return -EINVAL;
+
+	mem_hotplug_begin();
+
+    for (pfn_it = pfn; pfn_it < pfn + nr_pages; pfn_it += 64) {
+        move_pfn_range_to_zone(zone, pfn_it, 32, NULL, MIGRATE_ISOLATE);
+    }
+
+	arg.start_pfn = pfn;
+	arg.nr_pages = nr_pages;
+	node_states_check_changes_online(nr_pages, zone, &arg);
+
+	ret = memory_notify(MEM_GOING_ONLINE, &arg);
+	ret = notifier_to_errno(ret);
+	if (ret)
+		goto failed_addition;
+
+	spin_lock_irqsave(&zone->lock, flags);
+	zone->nr_isolate_pageblock += nr_pages / pageblock_nr_pages;
+	spin_unlock_irqrestore(&zone->lock, flags);
+
+	if (!populated_zone(zone)) {
+		need_zonelists_rebuild = 1;
+		setup_zone_pageset(zone);
+	}
+
+    for (pfn_it = pfn; pfn_it < pfn + nr_pages; pfn_it += 64) {
+        online_pages_range(pfn_it, 32);
+    }
+
+	adjust_present_page_count(pfn_to_page(pfn), group, nr_pages);
+	node_states_set_node(nid, &arg);
+	if (need_zonelists_rebuild)
+		build_all_zonelists(NULL);
+
+	undo_isolate_page_range(pfn, pfn + nr_pages, MIGRATE_MOVABLE);
+	shuffle_zone(zone);
+
+	init_per_zone_wmark_min();
+
+	kswapd_run(nid);
+	kcompactd_run(nid);
+	writeback_set_ratelimit();
+
+	memory_notify(MEM_ONLINE, &arg);
+	mem_hotplug_done();
+	return 0;
+
+failed_addition:
+	pr_debug("online_pages [mem %#010llx-%#010llx] failed\n",
+		 (unsigned long long) pfn << PAGE_SHIFT,
+		 (((unsigned long long) pfn + nr_pages) << PAGE_SHIFT) - 1);
+	memory_notify(MEM_CANCEL_ONLINE, &arg);
+	remove_pfn_range_from_zone(zone, pfn, nr_pages);
+	mem_hotplug_done();
+	return ret;
+}
+EXPORT_SYMBOL(expose_mram_pages);
 
 int __ref online_pages(unsigned long pfn, unsigned long nr_pages,
 		       struct zone *zone, struct memory_group *group)
