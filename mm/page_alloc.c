@@ -6088,15 +6088,29 @@ static int build_zonerefs_node(pg_data_t *pgdat, struct zoneref *zonerefs)
 	struct zone *zone;
 	enum zone_type zone_type = MAX_NR_ZONES;
 	int nr_zones = 0;
+	struct zone *zone_device = pgdat->node_zones + ZONE_DEVICE;
+    enum zone_type last_inserted_zone_type = MAX_NR_ZONES;
 
 	do {
 		zone_type--;
 		zone = pgdat->node_zones + zone_type;
-		if (populated_zone(zone)) {
+		if (managed_zone(zone)) {
+            if (zone_type == ZONE_DEVICE)
+                continue;
+            if (last_inserted_zone_type == ZONE_NORMAL && managed_zone(zone_device)) {
+                zoneref_set_zone(zone_device, &zonerefs[nr_zones++]);
+                check_highest_zone(zone_type);
+            }
 			zoneref_set_zone(zone, &zonerefs[nr_zones++]);
 			check_highest_zone(zone_type);
+            last_inserted_zone_type = zone_type;
 		}
 	} while (zone_type);
+
+    if (last_inserted_zone_type == ZONE_NORMAL && managed_zone(zone_device)) {
+        zoneref_set_zone(zone_device, &zonerefs[nr_zones++]);
+        check_highest_zone(zone_type);
+    }
 
 	return nr_zones;
 }
