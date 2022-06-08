@@ -948,7 +948,7 @@ static int move_to_new_page(struct page *newpage, struct page *page,
 		if (!PageMappingFlags(page))
 			page->mapping = NULL;
 
-		if (likely(!is_zone_device_page(newpage))) {
+		if (likely(!is_zone_device_page(newpage) || !PageReserved(newpage))) {
 			int i, nr = compound_nr(newpage);
 
 			for (i = 0; i < nr; i++)
@@ -2492,7 +2492,7 @@ static bool migrate_vma_check_page(struct page *page)
 		return false;
 
 	/* Page from ZONE_DEVICE have one extra reference */
-	if (is_zone_device_page(page)) {
+	if (is_zone_device_page(page) && PageReserved(page)) {
 		/*
 		 * Private page can never be pin as they have no valid pte and
 		 * GUP will fail for those. Yet if there is a pending migration
@@ -2564,7 +2564,7 @@ static void migrate_vma_prepare(struct migrate_vma *migrate)
 		}
 
 		/* ZONE_DEVICE pages are not on LRU */
-		if (!is_zone_device_page(page)) {
+		if (!is_zone_device_page(page) || !PageReserved(page)) {
 			if (!PageLRU(page) && allow_drain) {
 				/* Drain CPU's pagevec */
 				lru_add_drain_all();
@@ -2595,7 +2595,7 @@ static void migrate_vma_prepare(struct migrate_vma *migrate)
 				migrate->cpages--;
 				restore++;
 
-				if (!is_zone_device_page(page)) {
+				if (!is_zone_device_page(page) || !PageReserved(page)) {
 					get_page(page);
 					putback_lru_page(page);
 				}
@@ -2604,7 +2604,7 @@ static void migrate_vma_prepare(struct migrate_vma *migrate)
 				unlock_page(page);
 				migrate->cpages--;
 
-				if (!is_zone_device_page(page))
+				if (!is_zone_device_page(page) || !PageReserved(page))
 					putback_lru_page(page);
 				else
 					put_page(page);
@@ -2677,7 +2677,7 @@ restore:
 		unlock_page(page);
 		restore--;
 
-		if (is_zone_device_page(page))
+		if (is_zone_device_page(page) && PageReserved(page))
 			put_page(page);
 		else
 			putback_lru_page(page);
@@ -2859,7 +2859,7 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 	 */
 	__SetPageUptodate(page);
 
-	if (is_zone_device_page(page)) {
+	if (is_zone_device_page(page) && PageReserved(page)) {
 		if (is_device_private_page(page)) {
 			swp_entry_t swp_entry;
 
@@ -2907,7 +2907,7 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 
 	inc_mm_counter(mm, MM_ANONPAGES);
 	page_add_new_anon_rmap(page, vma, addr, false);
-	if (!is_zone_device_page(page))
+	if (!is_zone_device_page(page) || !PageReserved(page))
 		lru_cache_add_inactive_or_unevictable(page, vma);
 	get_page(page);
 
@@ -2978,7 +2978,7 @@ void migrate_vma_pages(struct migrate_vma *migrate)
 
 		mapping = page_mapping(page);
 
-		if (is_zone_device_page(newpage)) {
+		if (is_zone_device_page(newpage) && PageReserved(newpage)) {
 			if (is_device_private_page(newpage)) {
 				/*
 				 * For now only support private anonymous when
@@ -3052,14 +3052,14 @@ void migrate_vma_finalize(struct migrate_vma *migrate)
 		remove_migration_ptes(page, newpage, false);
 		unlock_page(page);
 
-		if (is_zone_device_page(page))
+		if (is_zone_device_page(page) && PageReserved(page))
 			put_page(page);
 		else
 			putback_lru_page(page);
 
 		if (newpage != page) {
 			unlock_page(newpage);
-			if (is_zone_device_page(newpage))
+			if (is_zone_device_page(newpage) && PageReserved(page))
 				put_page(newpage);
 			else
 				putback_lru_page(newpage);

@@ -571,7 +571,7 @@ static void smaps_pmd_entry(pmd_t *pmd, unsigned long addr,
 		mss->anonymous_thp += HPAGE_PMD_SIZE;
 	else if (PageSwapBacked(page))
 		mss->shmem_thp += HPAGE_PMD_SIZE;
-	else if (is_zone_device_page(page))
+	else if (is_zone_device_page(page) && PageReserved(page))
 		/* pass */;
 	else
 		mss->file_thp += HPAGE_PMD_SIZE;

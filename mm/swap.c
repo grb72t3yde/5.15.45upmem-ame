@@ -113,7 +113,7 @@ static void __put_compound_page(struct page *page)
 
 void __put_page(struct page *page)
 {
-	if (is_zone_device_page(page)) {
+	if (is_zone_device_page(page) && PageReserved(page)) {
 		put_dev_pagemap(page->pgmap);
 
 		/*
@@ -908,7 +908,7 @@ void release_pages(struct page **pages, int nr)
 		if (is_huge_zero_page(page))
 			continue;
 
-		if (is_zone_device_page(page)) {
+		if (is_zone_device_page(page) && PageReserved(page)) {
 			if (lruvec) {
 				unlock_page_lruvec_irqrestore(lruvec, flags);
 				lruvec = NULL;
