@@ -1088,9 +1088,7 @@ int __ref expose_mram_pages(unsigned long pfn, unsigned long nr_pages,
 
 	mem_hotplug_begin();
 
-    for (pfn_it = pfn; pfn_it < pfn + nr_pages; pfn_it += 64) {
-        move_pfn_range_to_zone(zone, pfn_it, 32, NULL, MIGRATE_ISOLATE);
-    }
+    move_pfn_range_to_zone(zone, pfn, nr_pages, NULL, MIGRATE_ISOLATE);
 
 	arg.start_pfn = pfn;
 	arg.nr_pages = nr_pages;
