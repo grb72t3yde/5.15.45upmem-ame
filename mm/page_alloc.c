@@ -8853,8 +8853,12 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page,
 		 * allocations inside ZONE_MOVABLE, for example when
 		 * specifying "movablecore".
 		 */
-		if (PageReserved(page))
-			return page;
+		if (PageReserved(page)) {
+            if (is_zone_device_page(page)) /* UPMEM MRAM page */
+                continue;
+            else
+                return page;
+        }
 
 		/*
 		 * If the zone is movable and we have ruled out all reserved
