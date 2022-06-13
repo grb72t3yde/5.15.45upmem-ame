@@ -2123,8 +2123,13 @@ int __ref reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
 	unsigned long flags;
 	struct zone *zone;
 	struct memory_notify arg;
-	int ret, node;
+	int ret, node, i;
 	char *reason;
+    struct mhp_params params = {
+		.altmap = pgmap_altmap(pgmap),
+		.pgprot = PAGE_KERNEL,
+	};
+    struct range *range;
 
 	if (WARN_ON_ONCE(!nr_pages ||
 			 !IS_ALIGNED(start_pfn, pageblock_nr_pages) ||
@@ -2245,8 +2250,21 @@ int __ref reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
 	memory_notify(MEM_OFFLINE, &arg);
 	remove_pfn_range_from_zone(zone, start_pfn, nr_pages);
 
+    for (i = 0; i < pgmap->nr_range; i++) {
+        range = &pgmap->ranges[i];
+        move_pfn_range_to_zone(zone, PHYS_PFN(range->start),
+                PHYS_PFN(range_len(range)), params.altmap,
+                MIGRATE_MOVABLE);
+    }
+
 	mem_hotplug_done();
 
+    for (i = 0; i < pgmap->nr_range; i++) {
+        range = &pgmap->ranges[i];
+        memmap_init_zone_device(&NODE_DATA(node)->node_zones[ZONE_DEVICE],
+                    PHYS_PFN(range->start),
+                    PHYS_PFN(range_len(range)), pgmap);
+    }
 	return 0;
 
 failed_removal_isolated:
