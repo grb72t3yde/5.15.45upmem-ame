@@ -2252,8 +2252,8 @@ int __ref reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
 
     for (i = 0; i < pgmap->nr_range; i++) {
         range = &pgmap->ranges[i];
-        move_pfn_range_to_zone(zone, PHYS_PFN(range->start),
-                PHYS_PFN(range_len(range)), params.altmap,
+        move_pfn_range_to_zone(zone, start_pfn,
+                nr_pages, params.altmap,
                 MIGRATE_MOVABLE);
     }
 
@@ -2262,8 +2262,8 @@ int __ref reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
     for (i = 0; i < pgmap->nr_range; i++) {
         range = &pgmap->ranges[i];
         memmap_init_zone_device(&NODE_DATA(node)->node_zones[ZONE_DEVICE],
-                    PHYS_PFN(range->start),
-                    PHYS_PFN(range_len(range)), pgmap);
+                    start_pfn,
+                    nr_pages, pgmap);
     }
 	return 0;
 
