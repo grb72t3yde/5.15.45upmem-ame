@@ -4056,6 +4056,9 @@ retry:
 		struct page *page;
 		unsigned long mark;
 
+        if (zone_is_zone_device(zone) && (gfp_mask & GFP_HIGHUSER_MOVABLE != GFP_HIGHUSER_MOVABLE))
+            continue;
+
 		if (cpusets_enabled() &&
 			(alloc_flags & ALLOC_CPUSET) &&
 			!__cpuset_zone_allowed(zone, gfp_mask))
@@ -4079,6 +4082,7 @@ retry:
 		 * will require awareness of nodes in the
 		 * dirty-throttling and the flusher threads.
 		 */
+
 		if (ac->spread_dirty_pages) {
 			if (last_pgdat_dirty_limit == zone->zone_pgdat)
 				continue;
@@ -8865,7 +8869,7 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page,
 		 * pages then it should be reasonably safe to assume the rest
 		 * is movable.
 		 */
-		if (zone_idx(zone) == ZONE_MOVABLE)
+		if (zone_idx(zone) == ZONE_MOVABLE || zone_idx(zone) == ZONE_DEVICE)
 			continue;
 
 		/*
