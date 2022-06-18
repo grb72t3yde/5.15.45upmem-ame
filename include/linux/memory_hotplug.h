@@ -304,6 +304,9 @@ static inline void pgdat_resize_init(struct pglist_data *pgdat) {}
 extern void try_offline_node(int nid);
 extern int offline_pages(unsigned long start_pfn, unsigned long nr_pages,
 			 struct memory_group *group);
+/* UPMEM */
+extern int reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
+			 struct memory_group *group, struct dev_pagemap *pgmap);
 extern int remove_memory(u64 start, u64 size);
 extern void __remove_memory(u64 start, u64 size);
 extern int offline_and_remove_memory(u64 start, u64 size);
