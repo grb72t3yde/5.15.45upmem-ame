@@ -4035,6 +4035,10 @@ static inline unsigned int gfp_to_alloc_flags_cma(gfp_t gfp_mask,
  * get_page_from_freelist goes through the zonelist trying to allocate
  * a page.
  */
+
+int (*ame_request_mram_pages)(void);
+EXPORT_SYMBOL(ame_request_mram_pages);
+
 static struct page *
 get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 						const struct alloc_context *ac)
@@ -4056,7 +4060,7 @@ retry:
 		struct page *page;
 		unsigned long mark;
 
-        if (zone_is_zone_device(zone) && (gfp_mask & GFP_HIGHUSER_MOVABLE != GFP_HIGHUSER_MOVABLE))
+        if (zone_is_zone_device(zone) && ((gfp_mask & GFP_HIGHUSER_MOVABLE) != GFP_HIGHUSER_MOVABLE))
             continue;
 
 		if (cpusets_enabled() &&
@@ -4113,7 +4117,7 @@ retry:
 		if (!zone_watermark_fast(zone, order, mark,
 				       ac->highest_zoneidx, alloc_flags,
 				       gfp_mask)) {
-			int ret;
+			int ret = -EBUSY;
 
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
 			/*
@@ -4131,8 +4135,26 @@ retry:
 				goto try_this_zone;
 
 			if (!node_reclaim_enabled() ||
-			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone))
+			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone)) {
+
+                if (order <= 5) {
+                    /* Make a request to AME */
+                    mem_hotplug_begin();
+                    if (zone_idx(zone) == ZONE_DEVICE ||
+                            (zone_idx(zone) == ZONE_NORMAL && zonelist_zone_idx(next_zones_zonelist(z + 1, ac->highest_zoneidx, ac->nodemask)) != ZONE_DEVICE)) {
+                        if (ame_request_mram_pages) {
+                            ret = ame_request_mram_pages();
+                        }
+                    }
+                    mem_hotplug_done();
+
+                    /* If we have managed to get MRAM pages from AME, retry ZONE_DEVICE */
+                    if (!ret && zone_idx(zone) == ZONE_DEVICE)
+                        goto try_this_zone;
+                }
+
 				continue;
+            }
 
 			ret = node_reclaim(zone->zone_pgdat, gfp_mask, order);
 			switch (ret) {
