@@ -843,6 +843,10 @@ typedef struct pglist_data {
 	wait_queue_head_t pfmemalloc_wait;
 	struct task_struct *kswapd;	/* Protected by
 					   mem_hotplug_begin/end() */
+    /* AME */
+	wait_queue_head_t ame_manager_wait;
+    struct task_struct *ame_manager;
+    int ame_manager_order;
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
 
@@ -929,6 +933,7 @@ static inline bool pgdat_is_empty(pg_data_t *pgdat)
 void build_all_zonelists(pg_data_t *pgdat);
 void wakeup_kswapd(struct zone *zone, gfp_t gfp_mask, int order,
 		   enum zone_type highest_zoneidx);
+void wakeup_ame_manager(struct zone *zone, int order);
 bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 			 int highest_zoneidx, unsigned int alloc_flags,
 			 long free_pages);

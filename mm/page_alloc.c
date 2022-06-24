@@ -4036,9 +4036,6 @@ static inline unsigned int gfp_to_alloc_flags_cma(gfp_t gfp_mask,
  * a page.
  */
 
-int (*ame_request_mram_pages)(void);
-EXPORT_SYMBOL(ame_request_mram_pages);
-
 static struct page *
 get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 						const struct alloc_context *ac)
@@ -4136,23 +4133,7 @@ retry:
 
 			if (!node_reclaim_enabled() ||
 			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone)) {
-
-                if (order <= 5) {
-                    /* Make a request to AME */
-                    mem_hotplug_begin();
-                    if (zone_idx(zone) == ZONE_DEVICE ||
-                            (zone_idx(zone) == ZONE_NORMAL && zonelist_zone_idx(next_zones_zonelist(z + 1, ac->highest_zoneidx, ac->nodemask)) != ZONE_DEVICE)) {
-                        if (ame_request_mram_pages) {
-                            ret = ame_request_mram_pages();
-                        }
-                    }
-                    mem_hotplug_done();
-
-                    /* If we have managed to get MRAM pages from AME, retry ZONE_DEVICE */
-                    if (!ret && zone_idx(zone) == ZONE_DEVICE)
-                        goto try_this_zone;
-                }
-
+                wakeup_ame_manager(zone, order);
 				continue;
             }
 
@@ -4677,6 +4658,7 @@ static void wake_all_kswapds(unsigned int order, gfp_t gfp_mask,
 		last_pgdat = zone->zone_pgdat;
 	}
 }
+
 
 static inline unsigned int
 gfp_to_alloc_flags(gfp_t gfp_mask)
