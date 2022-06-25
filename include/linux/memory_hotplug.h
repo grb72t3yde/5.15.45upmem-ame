@@ -311,6 +311,7 @@ extern int remove_memory(u64 start, u64 size);
 extern void __remove_memory(u64 start, u64 size);
 extern int offline_and_remove_memory(u64 start, u64 size);
 void ame_manager_run(int nid);
+void ame_manager_init(int nid);
 
 #else
 static inline void try_offline_node(int nid) {}

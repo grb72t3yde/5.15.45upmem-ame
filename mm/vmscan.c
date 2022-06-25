@@ -4396,8 +4396,8 @@ void wakeup_ame_manager(struct zone *zone, int order)
     wake_up_interruptible(&pgdat->ame_manager_wait);
 }
 
-int (*ame_request_mram_pages)(void);
-EXPORT_SYMBOL(ame_request_mram_pages);
+int (*ame_request_mram_expansion)(void);
+EXPORT_SYMBOL(ame_request_mram_expansion);
 
 static int ame_manager(void *p)
 {
@@ -4435,20 +4435,25 @@ ame_manager_try_to_sleep:
         if (zone_idx(zone) == ZONE_DEVICE) {
             mark = low_wmark_pages(zone);
             if (!zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-                if (ame_request_mram_pages)
-                    ame_ret = ame_request_mram_pages();
+                if (ame_request_mram_expansion)
+                    ame_ret = ame_request_mram_expansion();
             }
         }
     }
     return 0;
 }
+void ame_manager_init(int nid)
+{
+    pg_data_t *pgdat = NODE_DATA(nid);
+    init_waitqueue_head(&pgdat->ame_manager_wait);
+}
+EXPORT_SYMBOL(ame_manager_init);
 
 void ame_manager_run(int nid)
 {
     pg_data_t *pgdat = NODE_DATA(nid);
     if (pgdat->ame_manager)
 		return;
-    init_waitqueue_head(&pgdat->ame_manager_wait);
     pgdat->ame_manager = kthread_run(ame_manager, pgdat, "ame_manager%d", nid);
 }
 EXPORT_SYMBOL(ame_manager_run);
