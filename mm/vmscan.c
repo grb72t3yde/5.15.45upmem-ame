@@ -4443,12 +4443,13 @@ ame_manager_try_to_sleep:
     }
     return 0;
 }
-void ame_manager_init(int nid)
+void ame_init_node(int nid)
 {
     pg_data_t *pgdat = NODE_DATA(nid);
     init_waitqueue_head(&pgdat->ame_manager_wait);
+    init_waitqueue_head(&pgdat->ame_reclaimer_wait);
 }
-EXPORT_SYMBOL(ame_manager_init);
+EXPORT_SYMBOL(ame_init_node);
 
 void ame_manager_run(int nid)
 {
@@ -4458,6 +4459,20 @@ void ame_manager_run(int nid)
     pgdat->ame_manager = kthread_run(ame_manager, pgdat, "ame_manager%d", nid);
 }
 EXPORT_SYMBOL(ame_manager_run);
+
+static int ame_reclaimer(void *p)
+{
+    return 0;
+}
+
+void ame_reclaimer_run(int nid)
+{
+    pg_data_t *pgdat = NODE_DATA(nid);
+    if (pgdat->ame_reclaimer)
+		return;
+    pgdat->ame_reclaimer = kthread_run(ame_reclaimer, pgdat, "ame_reclaimer%d", nid);
+}
+EXPORT_SYMBOL(ame_reclaimer_run);
 
 /*
  * A zone is low on free memory or too fragmented for high-order memory.  If

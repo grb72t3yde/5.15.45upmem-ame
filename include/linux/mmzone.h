@@ -330,6 +330,7 @@ enum zone_watermarks {
 	WMARK_MIN,
 	WMARK_LOW,
 	WMARK_HIGH,
+    AME_WMARK_HIGH,
 	NR_WMARK
 };
 
@@ -354,6 +355,7 @@ enum zone_watermarks {
 #define min_wmark_pages(z) (z->_watermark[WMARK_MIN] + z->watermark_boost)
 #define low_wmark_pages(z) (z->_watermark[WMARK_LOW] + z->watermark_boost)
 #define high_wmark_pages(z) (z->_watermark[WMARK_HIGH] + z->watermark_boost)
+#define ame_high_wmark_pages(z) (z->_watermark[AME_WMARK_HIGH] + z->watermark_boost)
 #define wmark_pages(z, i) (z->_watermark[i] + z->watermark_boost)
 
 /* Fields and list protected by pagesets local_lock in page_alloc.c */
@@ -845,8 +847,11 @@ typedef struct pglist_data {
 					   mem_hotplug_begin/end() */
     /* AME */
 	wait_queue_head_t ame_manager_wait;
+	wait_queue_head_t ame_reclaimer_wait;
     struct task_struct *ame_manager;
+    struct task_struct *ame_reclaimer;
     int ame_manager_order;
+    atomic_t ame_nr_ranks;
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
 
