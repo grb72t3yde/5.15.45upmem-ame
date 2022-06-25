@@ -4412,6 +4412,7 @@ static int ame_manager(void *p)
         bool ret;
         int ame_ret = -EBUSY;
 
+        set_freezable();
         order = READ_ONCE(pgdat->ame_manager_order);
 ame_manager_try_to_sleep:
         /* try to sleep */
