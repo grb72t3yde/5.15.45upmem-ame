@@ -4399,6 +4399,9 @@ void wakeup_ame_manager(struct zone *zone, int order)
 int (*ame_request_mram_expansion)(void);
 EXPORT_SYMBOL(ame_request_mram_expansion);
 
+int (*ame_request_mram_reclamation)(void);
+EXPORT_SYMBOL(ame_request_mram_reclamation);
+
 static int ame_manager(void *p)
 {
     pg_data_t *pgdat = (pg_data_t *)p;
@@ -4406,13 +4409,13 @@ static int ame_manager(void *p)
 	struct zone *zone;
     unsigned int order;
 
+    set_freezable();
     WRITE_ONCE(pgdat->ame_manager_order, 0);
     for ( ; ; )
     {
         bool ret;
         int ame_ret = -EBUSY;
 
-        set_freezable();
         order = READ_ONCE(pgdat->ame_manager_order);
 ame_manager_try_to_sleep:
         /* try to sleep */
@@ -4438,6 +4441,11 @@ ame_manager_try_to_sleep:
             if (!zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
                 if (ame_request_mram_expansion)
                     ame_ret = ame_request_mram_expansion();
+                if (!ame_ret) {
+                    if (atomic_inc_return(&pgdat->ame_nr_ranks) == 1) {
+                        wakeup_ame_reclaimer(zone);
+                    }
+                }
             }
         }
     }
@@ -4446,6 +4454,8 @@ ame_manager_try_to_sleep:
 void ame_init_node(int nid)
 {
     pg_data_t *pgdat = NODE_DATA(nid);
+
+    atomic_set(&pgdat->ame_nr_ranks, 0);
     init_waitqueue_head(&pgdat->ame_manager_wait);
     init_waitqueue_head(&pgdat->ame_reclaimer_wait);
 }
@@ -4460,8 +4470,69 @@ void ame_manager_run(int nid)
 }
 EXPORT_SYMBOL(ame_manager_run);
 
+/* AME reclaimer */
+void wakeup_ame_reclaimer(struct zone *zone)
+{
+    pg_data_t *pgdat;
+
+    pgdat = zone->zone_pgdat;
+
+    if (!waitqueue_active(&pgdat->ame_reclaimer_wait))
+		return;
+
+    wake_up_interruptible(&pgdat->ame_reclaimer_wait);
+}
+
+static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
+{
+    DEFINE_WAIT(wait);
+
+	if (freezing(current) || kthread_should_stop())
+		return;
+
+	prepare_to_wait(&pgdat->ame_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
+
+    if (!atomic_read(&pgdat->ame_nr_ranks)) {
+        if (!kthread_should_stop()) {
+            schedule();
+        }
+    }
+    finish_wait(&pgdat->ame_reclaimer_wait, &wait);
+}
+
 static int ame_reclaimer(void *p)
 {
+    pg_data_t *pgdat = (pg_data_t *)p;
+    unsigned long mark = -1;
+    struct zone *zone;
+
+    set_freezable();
+    for ( ; ; ) {
+        bool ret;
+        int ame_ret = -EBUSY;
+
+ame_reclaimer_try_to_sleep:
+        ame_reclaimer_try_to_sleep(pgdat);
+
+        ret = try_to_freeze();
+        if (kthread_should_stop())
+            break;
+
+        for (zone = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
+            if (zone_idx(zone) == ZONE_NORMAL) {
+                break;
+            }
+
+        mark = ame_high_wmark_pages(zone);
+        if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
+            if (ame_request_mram_reclamation) {
+                ame_ret = ame_request_mram_reclamation();
+
+                if (!ame_ret)
+                    atomic_dec(&pgdat->ame_nr_ranks);
+            }
+        }
+    }
     return 0;
 }
 
