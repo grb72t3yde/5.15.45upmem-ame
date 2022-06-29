@@ -4371,10 +4371,22 @@ static void ame_manager_try_to_sleep(pg_data_t *pgdat, int reclaim_order, unsign
 		return;
 
 	prepare_to_wait(&pgdat->ame_manager_wait, &wait, TASK_INTERRUPTIBLE);
-
     if (prepare_ame_manager_sleep(pgdat, reclaim_order, highest_zoneidx)) {
+        remaining = schedule_timeout(HZ/10);
+
+        if (remaining) {
+            if (READ_ONCE(pgdat->ame_manager_order) < reclaim_order)
+				WRITE_ONCE(pgdat->ame_manager_order, reclaim_order);
+        }
+
+        finish_wait(&pgdat->ame_manager_wait, &wait);
+		prepare_to_wait(&pgdat->ame_manager_wait, &wait, TASK_INTERRUPTIBLE);
+    }
+    if (!remaining &&
+	    prepare_ame_manager_sleep(pgdat, reclaim_order, highest_zoneidx)) {
         if (!kthread_should_stop()) {
             schedule();
+            pr_info("wakeup ame manager\n");
         }
     }
     finish_wait(&pgdat->ame_manager_wait, &wait);
@@ -4485,14 +4497,21 @@ void wakeup_ame_reclaimer(struct zone *zone)
 
 static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
 {
+    long remaining = 0;
     DEFINE_WAIT(wait);
 
 	if (freezing(current) || kthread_should_stop())
 		return;
 
 	prepare_to_wait(&pgdat->ame_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
-
     if (!atomic_read(&pgdat->ame_nr_ranks)) {
+        remaining = schedule_timeout(HZ/10);
+
+        finish_wait(&pgdat->ame_reclaimer_wait, &wait);
+		prepare_to_wait(&pgdat->ame_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
+    }
+    if (!remaining &&
+            !atomic_read(&pgdat->ame_nr_ranks)) {
         if (!kthread_should_stop()) {
             schedule();
         }
