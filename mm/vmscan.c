@@ -4375,8 +4375,8 @@ void wakeup_ame_manager(struct zone *zone, int order)
     pgdat = zone->zone_pgdat;
 
     /* We wake ame_manager up only if we don't have enough free pages in ZONE_DEVICE */
-    for (zone_dev = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
-        if (zone_idx(zone) == ZONE_DEVICE)
+    for (zone_dev = pgdat->node_zones; zone_dev < pgdat->node_zones + MAX_NR_ZONES - 1; zone_dev++)
+        if (zone_idx(zone_dev) == ZONE_DEVICE)
             break;
     mark = low_wmark_pages(zone_dev);
     if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES))

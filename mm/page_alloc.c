@@ -4042,6 +4042,7 @@ get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 {
 	struct zoneref *z;
 	struct zone *zone;
+    pg_data_t *pgdat;
 	struct pglist_data *last_pgdat_dirty_limit = NULL;
 	bool no_fallback;
 
@@ -4133,7 +4134,8 @@ retry:
 
 			if (!node_reclaim_enabled() ||
 			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone)) {
-                if (zone_idx(zone) == ZONE_NORMAL)
+                pgdat = zone->zone_pgdat;
+                if (pgdat->ame_manager && zone_idx(zone) == ZONE_NORMAL)
                     wakeup_ame_manager(zone, order);
 				continue;
             }
