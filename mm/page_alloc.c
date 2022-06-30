@@ -4133,7 +4133,8 @@ retry:
 
 			if (!node_reclaim_enabled() ||
 			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone)) {
-                wakeup_ame_manager(zone, order);
+                if (zone_idx(zone) == ZONE_NORMAL)
+                    wakeup_ame_manager(zone, order);
 				continue;
             }
 

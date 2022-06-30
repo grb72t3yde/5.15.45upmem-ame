@@ -4337,32 +4337,12 @@ kswapd_try_sleep:
 }
 
 /* AME */
-static bool ame_pgdat_balance(pg_data_t *pgdat, int order, unsigned long highest_zoneidx)
+static bool prepare_ame_manager_sleep(void)
 {
-    unsigned long mark = -1;
-	struct zone *zone;
-
-    for (zone = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
-        if (zone_idx(zone) == ZONE_NORMAL) {
-            break;
-        }
-
-    mark = low_wmark_pages(zone);
-    if (!zone_watermark_ok_safe(zone, order, mark, highest_zoneidx))
-        return false;
-
     return true;
 }
 
-static bool prepare_ame_manager_sleep(pg_data_t *pgdat, int order, unsigned int highest_zoneidx)
-{
-    if (ame_pgdat_balance(pgdat, order, highest_zoneidx))
-        return true;
-
-    return false;
-}
-
-static void ame_manager_try_to_sleep(pg_data_t *pgdat, int reclaim_order, unsigned int highest_zoneidx)
+static void ame_manager_try_to_sleep(pg_data_t *pgdat)
 {
     long remaining = 0;
 	DEFINE_WAIT(wait);
@@ -4371,22 +4351,16 @@ static void ame_manager_try_to_sleep(pg_data_t *pgdat, int reclaim_order, unsign
 		return;
 
 	prepare_to_wait(&pgdat->ame_manager_wait, &wait, TASK_INTERRUPTIBLE);
-    if (prepare_ame_manager_sleep(pgdat, reclaim_order, highest_zoneidx)) {
+    if (prepare_ame_manager_sleep()) {
         remaining = schedule_timeout(HZ/10);
-
-        if (remaining) {
-            if (READ_ONCE(pgdat->ame_manager_order) < reclaim_order)
-				WRITE_ONCE(pgdat->ame_manager_order, reclaim_order);
-        }
 
         finish_wait(&pgdat->ame_manager_wait, &wait);
 		prepare_to_wait(&pgdat->ame_manager_wait, &wait, TASK_INTERRUPTIBLE);
     }
     if (!remaining &&
-	    prepare_ame_manager_sleep(pgdat, reclaim_order, highest_zoneidx)) {
+	    prepare_ame_manager_sleep()) {
         if (!kthread_should_stop()) {
             schedule();
-            pr_info("wakeup ame manager\n");
         }
     }
     finish_wait(&pgdat->ame_manager_wait, &wait);
@@ -4394,13 +4368,22 @@ static void ame_manager_try_to_sleep(pg_data_t *pgdat, int reclaim_order, unsign
 
 void wakeup_ame_manager(struct zone *zone, int order)
 {
+    unsigned long mark = -1;
+    struct zone *zone_dev;
     pg_data_t *pgdat;
+
+    pgdat = zone->zone_pgdat;
+
+    /* We wake ame_manager up only if we don't have enough free pages in ZONE_DEVICE */
+    for (zone_dev = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
+        if (zone_idx(zone) == ZONE_DEVICE)
+            break;
+    mark = low_wmark_pages(zone_dev);
+    if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES))
+        return;
 
     if (order > 5)
         return;
-
-    pgdat = zone->zone_pgdat;
-    WRITE_ONCE(pgdat->ame_manager_order, order);
 
     if (!waitqueue_active(&pgdat->ame_manager_wait))
 		return;
@@ -4417,24 +4400,15 @@ EXPORT_SYMBOL(ame_request_mram_reclamation);
 static int ame_manager(void *p)
 {
     pg_data_t *pgdat = (pg_data_t *)p;
-    unsigned long mark = -1;
-	struct zone *zone;
-    unsigned int order;
 
     set_freezable();
-    WRITE_ONCE(pgdat->ame_manager_order, 0);
     for ( ; ; )
     {
         bool ret;
         int ame_ret = -EBUSY;
 
-        order = READ_ONCE(pgdat->ame_manager_order);
 ame_manager_try_to_sleep:
-        /* try to sleep */
-        ame_manager_try_to_sleep(pgdat, order, MAX_NR_ZONES);
-
-        order = READ_ONCE(pgdat->ame_manager_order);
-        WRITE_ONCE(pgdat->ame_manager_order, 0);
+        ame_manager_try_to_sleep(pgdat);
 
         ret = try_to_freeze();
         if (kthread_should_stop())
@@ -4443,23 +4417,9 @@ ame_manager_try_to_sleep:
         if (ret)
             continue;
 
-        for (zone = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
-            if (zone_idx(zone) == ZONE_DEVICE) {
-                break;
-            }
-
-        if (zone_idx(zone) == ZONE_DEVICE) {
-            mark = low_wmark_pages(zone);
-            if (!zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-                if (ame_request_mram_expansion)
-                    ame_ret = ame_request_mram_expansion();
-                if (!ame_ret) {
-                    if (atomic_inc_return(&pgdat->ame_nr_ranks) == 1) {
-                        wakeup_ame_reclaimer(zone);
-                    }
-                }
-            }
-        }
+        pr_info("wakeup ame manager\n");
+        if (ame_request_mram_expansion)
+            ame_ret = ame_request_mram_expansion();
     }
     return 0;
 }

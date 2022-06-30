@@ -850,7 +850,6 @@ typedef struct pglist_data {
 	wait_queue_head_t ame_reclaimer_wait;
     struct task_struct *ame_manager;
     struct task_struct *ame_reclaimer;
-    int ame_manager_order;
     atomic_t ame_nr_ranks;
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
