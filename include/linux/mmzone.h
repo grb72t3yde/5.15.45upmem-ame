@@ -938,7 +938,7 @@ void build_all_zonelists(pg_data_t *pgdat);
 void wakeup_kswapd(struct zone *zone, gfp_t gfp_mask, int order,
 		   enum zone_type highest_zoneidx);
 void wakeup_ame_manager(struct zone *zone, int order);
-void wakeup_ame_reclaimer(struct zone *zone);
+void wakeup_ame_reclaimer(int nid);
 bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 			 int highest_zoneidx, unsigned int alloc_flags,
 			 long free_pages);

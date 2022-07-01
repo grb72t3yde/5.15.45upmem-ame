@@ -4391,10 +4391,10 @@ void wakeup_ame_manager(struct zone *zone, int order)
     wake_up_interruptible(&pgdat->ame_manager_wait);
 }
 
-int (*ame_request_mram_expansion)(void);
+int (*ame_request_mram_expansion)(int nid);
 EXPORT_SYMBOL(ame_request_mram_expansion);
 
-int (*ame_request_mram_reclamation)(void);
+int (*ame_request_mram_reclamation)(int nid);
 EXPORT_SYMBOL(ame_request_mram_reclamation);
 
 static int ame_manager(void *p)
@@ -4419,7 +4419,7 @@ ame_manager_try_to_sleep:
 
         pr_info("wakeup ame manager\n");
         if (ame_request_mram_expansion)
-            ame_ret = ame_request_mram_expansion();
+            ame_ret = ame_request_mram_expansion(pgdat->node_id);
     }
     return 0;
 }
@@ -4443,17 +4443,16 @@ void ame_manager_run(int nid)
 EXPORT_SYMBOL(ame_manager_run);
 
 /* AME reclaimer */
-void wakeup_ame_reclaimer(struct zone *zone)
+void wakeup_ame_reclaimer(int nid)
 {
-    pg_data_t *pgdat;
-
-    pgdat = zone->zone_pgdat;
+    pg_data_t *pgdat = NODE_DATA(nid);
 
     if (!waitqueue_active(&pgdat->ame_reclaimer_wait))
 		return;
 
     wake_up_interruptible(&pgdat->ame_reclaimer_wait);
 }
+EXPORT_SYMBOL(wakeup_ame_reclaimer);
 
 static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
 {
@@ -4464,17 +4463,11 @@ static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
 		return;
 
 	prepare_to_wait(&pgdat->ame_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
-    if (!atomic_read(&pgdat->ame_nr_ranks)) {
-        remaining = schedule_timeout(HZ/10);
-
-        finish_wait(&pgdat->ame_reclaimer_wait, &wait);
-		prepare_to_wait(&pgdat->ame_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
-    }
-    if (!remaining &&
-            !atomic_read(&pgdat->ame_nr_ranks)) {
-        if (!kthread_should_stop()) {
+    if (!kthread_should_stop()) {
+        if (!atomic_read(&pgdat->ame_nr_ranks))
             schedule();
-        }
+        else
+            schedule_timeout(HZ);
     }
     finish_wait(&pgdat->ame_reclaimer_wait, &wait);
 }
@@ -4497,6 +4490,9 @@ ame_reclaimer_try_to_sleep:
         if (kthread_should_stop())
             break;
 
+        if (!atomic_read(&pgdat->ame_nr_ranks))
+            continue;
+
         for (zone = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
             if (zone_idx(zone) == ZONE_NORMAL) {
                 break;
@@ -4505,10 +4501,7 @@ ame_reclaimer_try_to_sleep:
         mark = ame_high_wmark_pages(zone);
         if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
             if (ame_request_mram_reclamation) {
-                ame_ret = ame_request_mram_reclamation();
-
-                if (!ame_ret)
-                    atomic_dec(&pgdat->ame_nr_ranks);
+                ame_ret = ame_request_mram_reclamation(pgdat->node_id);
             }
         }
     }
