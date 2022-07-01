@@ -8436,7 +8436,7 @@ static void __setup_per_zone_wmarks(void)
 		zone->watermark_boost = 0;
 		zone->_watermark[WMARK_LOW]  = min_wmark_pages(zone) + tmp;
 		zone->_watermark[WMARK_HIGH] = min_wmark_pages(zone) + tmp * 2;
-		zone->_watermark[AME_WMARK_HIGH] = min_wmark_pages(zone) + tmp * 35;
+		zone->_watermark[AME_WMARK_HIGH] = min_wmark_pages(zone) + tmp * 100;
 
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}

@@ -4375,10 +4375,9 @@ void wakeup_ame_manager(struct zone *zone, int order)
     pgdat = zone->zone_pgdat;
 
     /* We wake ame_manager up only if we don't have enough free pages in ZONE_DEVICE */
-    for (zone_dev = pgdat->node_zones; zone_dev < pgdat->node_zones + MAX_NR_ZONES - 1; zone_dev++)
-        if (zone_idx(zone_dev) == ZONE_DEVICE)
-            break;
+    zone_dev = &pgdat->node_zones[ZONE_DEVICE];
     mark = low_wmark_pages(zone_dev);
+
     if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES))
         return;
 
@@ -4472,11 +4471,22 @@ static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
     finish_wait(&pgdat->ame_reclaimer_wait, &wait);
 }
 
+static void ame_reclaimer_try_to_reclaim(pg_data_t *pgdat)
+{
+    unsigned long mark = -1;
+    struct zone *zone;
+
+    zone = &pgdat->node_zones[ZONE_NORMAL];
+
+    mark = ame_high_wmark_pages(zone);
+    if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES))
+        if (ame_request_mram_reclamation)
+            ame_request_mram_reclamation(pgdat->node_id);
+}
+
 static int ame_reclaimer(void *p)
 {
     pg_data_t *pgdat = (pg_data_t *)p;
-    unsigned long mark = -1;
-    struct zone *zone;
 
     set_freezable();
     for ( ; ; ) {
@@ -4493,17 +4503,7 @@ ame_reclaimer_try_to_sleep:
         if (!atomic_read(&pgdat->ame_nr_ranks))
             continue;
 
-        for (zone = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES - 1; zone++)
-            if (zone_idx(zone) == ZONE_NORMAL) {
-                break;
-            }
-
-        mark = ame_high_wmark_pages(zone);
-        if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-            if (ame_request_mram_reclamation) {
-                ame_ret = ame_request_mram_reclamation(pgdat->node_id);
-            }
-        }
+        ame_reclaimer_try_to_reclaim(pgdat);
     }
     return 0;
 }
