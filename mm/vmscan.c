@@ -4419,6 +4419,10 @@ ame_manager_try_to_sleep:
         pr_info("wakeup ame manager\n");
         if (ame_request_mram_expansion)
             ame_ret = ame_request_mram_expansion(pgdat->node_id);
+
+        /* If we fail to borrow MRAM, stop ame_manager */
+        if (ame_ret)
+            break;
     }
     return 0;
 }
