@@ -4378,7 +4378,12 @@ void wakeup_ame_manager(struct zone *zone, int order)
     zone_dev = &pgdat->node_zones[ZONE_DEVICE];
     mark = low_wmark_pages(zone_dev);
 
-    if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES))
+    if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES)) {
+        atomic_set(&pgdat->ame_mcounter, 0);
+        return;
+    }
+
+    if (atomic_inc_return(&pgdat->ame_mcounter) < 1000)
         return;
 
     if (order > 5)
@@ -4387,6 +4392,7 @@ void wakeup_ame_manager(struct zone *zone, int order)
     if (!waitqueue_active(&pgdat->ame_manager_wait))
 		return;
 
+    atomic_set(&pgdat->ame_mcounter, 0);
     wake_up_interruptible(&pgdat->ame_manager_wait);
 }
 
@@ -4431,6 +4437,9 @@ void ame_init_node(int nid)
     pg_data_t *pgdat = NODE_DATA(nid);
 
     atomic_set(&pgdat->ame_nr_ranks, 0);
+    atomic_set(&pgdat->ame_mcounter, 0);
+    atomic_set(&pgdat->ame_rcounter_n, 0);
+    atomic_set(&pgdat->ame_rcounter_d, 0);
     init_waitqueue_head(&pgdat->ame_manager_wait);
     init_waitqueue_head(&pgdat->ame_reclaimer_wait);
 }
@@ -4481,11 +4490,33 @@ static void ame_reclaimer_try_to_reclaim(pg_data_t *pgdat)
     struct zone *zone;
 
     zone = &pgdat->node_zones[ZONE_NORMAL];
-
     mark = ame_high_wmark_pages(zone);
-    if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES))
-        if (ame_request_mram_reclamation)
-            ame_request_mram_reclamation(pgdat->node_id);
+
+    if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
+        if (atomic_inc_return(&pgdat->ame_rcounter_n) == 60) {
+            atomic_set(&pgdat->ame_rcounter_n, 0);
+            goto do_reclamation;
+        }
+    }
+    else
+        atomic_set(&pgdat->ame_rcounter_n, 0);
+
+    zone = &pgdat->node_zones[ZONE_DEVICE];
+    mark = ame_high_wmark_pages(zone);
+    if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
+        if (atomic_inc_return(&pgdat->ame_rcounter_d) == 60) {
+            atomic_set(&pgdat->ame_rcounter_d, 0);
+            goto do_reclamation;
+        }
+    }
+    else
+        atomic_set(&pgdat->ame_rcounter_d, 0);
+
+    return;
+
+do_reclamation:
+    if (ame_request_mram_reclamation)
+        ame_request_mram_reclamation(pgdat->node_id);
 }
 
 static int ame_reclaimer(void *p)

@@ -851,6 +851,9 @@ typedef struct pglist_data {
     struct task_struct *ame_manager;
     struct task_struct *ame_reclaimer;
     atomic_t ame_nr_ranks;
+    atomic_t ame_mcounter;
+    atomic_t ame_rcounter_n;
+    atomic_t ame_rcounter_d;
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
 
