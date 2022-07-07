@@ -4383,6 +4383,9 @@ void wakeup_ame_manager(struct zone *zone, int order)
         return;
     }
 
+    if (atomic_read(&pgdat->ame_disabled))
+        return;
+
     if (atomic_inc_return(&pgdat->ame_mcounter) < 1000)
         return;
 
@@ -4426,11 +4429,9 @@ ame_manager_try_to_sleep:
         if (ame_request_mram_expansion)
             ame_ret = ame_request_mram_expansion(pgdat->node_id);
 
-        /* If we fail to borrow MRAM, stop ame_manager */
-        if (ame_ret) {
-            pgdat->ame_manager = NULL;
-            break;
-        }
+        /* If we fail to borrow MRAM, disable ame_manager */
+        if (ame_ret)
+            atomic_set(&pgdat->ame_disabled, 1);
     }
     return 0;
 }

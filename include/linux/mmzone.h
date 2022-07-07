@@ -850,6 +850,7 @@ typedef struct pglist_data {
 	wait_queue_head_t ame_reclaimer_wait;
     struct task_struct *ame_manager;
     struct task_struct *ame_reclaimer;
+    atomic_t ame_disabled;
     atomic_t ame_nr_ranks;
     atomic_t ame_mcounter;
     atomic_t ame_rcounter_n;
