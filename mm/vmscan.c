@@ -4481,7 +4481,7 @@ static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
     if (!kthread_should_stop()) {
         if (!atomic_read(&pgdat->ame_nr_ranks))
             schedule();
-        else
+        else if (atomic_read(&pgdat->ame_is_direct_reclaim_activated) == 0)
             schedule_timeout(HZ);
     }
     finish_wait(&pgdat->ame_reclaimer_wait, &wait);
@@ -4494,6 +4494,9 @@ static void ame_reclaimer_try_to_reclaim(pg_data_t *pgdat)
 
     zone = &pgdat->node_zones[ZONE_NORMAL];
     mark = ame_high_wmark_pages(zone);
+
+    if (atomic_read(&pgdat->ame_is_direct_reclaim_activated) == 1)
+        goto do_reclamation;
 
     if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
         if (atomic_inc_return(&pgdat->ame_rcounter_n) == 60) {

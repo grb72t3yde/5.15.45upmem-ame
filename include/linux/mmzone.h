@@ -855,6 +855,7 @@ typedef struct pglist_data {
     atomic_t ame_mcounter;
     atomic_t ame_rcounter_n;
     atomic_t ame_rcounter_d;
+    atomic_t ame_is_direct_reclaim_activated;
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
 
