@@ -4336,6 +4336,227 @@ kswapd_try_sleep:
 	return 0;
 }
 
+/* AME */
+static bool prepare_ame_manager_sleep(void)
+{
+    return true;
+}
+
+static void ame_manager_try_to_sleep(pg_data_t *pgdat)
+{
+    long remaining = 0;
+	DEFINE_WAIT(wait);
+
+	if (freezing(current) || kthread_should_stop())
+		return;
+
+	prepare_to_wait(&pgdat->ame_manager_wait, &wait, TASK_INTERRUPTIBLE);
+    if (prepare_ame_manager_sleep()) {
+        remaining = schedule_timeout(HZ/10);
+
+        finish_wait(&pgdat->ame_manager_wait, &wait);
+		prepare_to_wait(&pgdat->ame_manager_wait, &wait, TASK_INTERRUPTIBLE);
+    }
+    if (!remaining &&
+	    prepare_ame_manager_sleep()) {
+        if (!kthread_should_stop()) {
+            schedule();
+        }
+    }
+    finish_wait(&pgdat->ame_manager_wait, &wait);
+}
+
+void wakeup_ame_manager(struct zone *zone, int order)
+{
+    unsigned long mark = -1;
+    struct zone *zone_dev;
+    pg_data_t *pgdat;
+
+    pgdat = zone->zone_pgdat;
+
+    /* We wake ame_manager up only if we don't have enough free pages in ZONE_DEVICE */
+    zone_dev = &pgdat->node_zones[ZONE_DEVICE];
+    mark = low_wmark_pages(zone_dev);
+
+    if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES)) {
+        atomic_set(&pgdat->ame_mcounter, 0);
+        return;
+    }
+
+    if (atomic_read(&pgdat->ame_disabled))
+        return;
+
+    if (atomic_inc_return(&pgdat->ame_mcounter) < 1000)
+        return;
+
+    if (order > 5)
+        return;
+
+    if (!waitqueue_active(&pgdat->ame_manager_wait))
+		return;
+
+    atomic_set(&pgdat->ame_mcounter, 0);
+    wake_up_interruptible(&pgdat->ame_manager_wait);
+}
+
+int (*ame_request_mram_expansion)(int nid);
+EXPORT_SYMBOL(ame_request_mram_expansion);
+
+int (*ame_request_mram_reclamation)(int nid);
+EXPORT_SYMBOL(ame_request_mram_reclamation);
+
+static int ame_manager(void *p)
+{
+    pg_data_t *pgdat = (pg_data_t *)p;
+
+    set_freezable();
+    for ( ; ; )
+    {
+        bool ret;
+        int ame_ret = -EBUSY;
+
+ame_manager_try_to_sleep:
+        ame_manager_try_to_sleep(pgdat);
+
+        ret = try_to_freeze();
+        if (kthread_should_stop())
+			break;
+
+        if (ret)
+            continue;
+
+        if (ame_request_mram_expansion)
+            ame_ret = ame_request_mram_expansion(pgdat->node_id);
+
+        /* If we fail to borrow MRAM, disable ame_manager */
+        if (ame_ret)
+            atomic_set(&pgdat->ame_disabled, 1);
+    }
+    return 0;
+}
+void ame_init_node(int nid)
+{
+    pg_data_t *pgdat = NODE_DATA(nid);
+
+    atomic_set(&pgdat->ame_nr_ranks, 0);
+    atomic_set(&pgdat->ame_mcounter, 0);
+    atomic_set(&pgdat->ame_rcounter_n, 0);
+    atomic_set(&pgdat->ame_rcounter_d, 0);
+    init_waitqueue_head(&pgdat->ame_manager_wait);
+    init_waitqueue_head(&pgdat->ame_reclaimer_wait);
+}
+EXPORT_SYMBOL(ame_init_node);
+
+void ame_manager_run(int nid)
+{
+    pg_data_t *pgdat = NODE_DATA(nid);
+    if (pgdat->ame_manager)
+		return;
+    pgdat->ame_manager = kthread_run(ame_manager, pgdat, "ame_manager%d", nid);
+}
+EXPORT_SYMBOL(ame_manager_run);
+
+/* AME reclaimer */
+void wakeup_ame_reclaimer(int nid)
+{
+    pg_data_t *pgdat = NODE_DATA(nid);
+
+    if (!waitqueue_active(&pgdat->ame_reclaimer_wait))
+		return;
+
+    wake_up_interruptible(&pgdat->ame_reclaimer_wait);
+}
+EXPORT_SYMBOL(wakeup_ame_reclaimer);
+
+static void ame_reclaimer_try_to_sleep(pg_data_t *pgdat)
+{
+    long remaining = 0;
+    DEFINE_WAIT(wait);
+
+	if (freezing(current) || kthread_should_stop())
+		return;
+
+	prepare_to_wait(&pgdat->ame_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
+    if (!kthread_should_stop()) {
+        if (!atomic_read(&pgdat->ame_nr_ranks))
+            schedule();
+        else if (atomic_read(&pgdat->ame_is_direct_reclaim_activated) == 0)
+            schedule_timeout(HZ);
+    }
+    finish_wait(&pgdat->ame_reclaimer_wait, &wait);
+}
+
+static void ame_reclaimer_try_to_reclaim(pg_data_t *pgdat)
+{
+    unsigned long mark = -1;
+    struct zone *zone;
+
+    zone = &pgdat->node_zones[ZONE_NORMAL];
+    mark = ame_high_wmark_pages(zone);
+
+    if (atomic_read(&pgdat->ame_is_direct_reclaim_activated) == 1)
+        goto do_reclamation;
+
+    if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
+        if (atomic_inc_return(&pgdat->ame_rcounter_n) == 60) {
+            atomic_set(&pgdat->ame_rcounter_n, 0);
+            goto do_reclamation;
+        }
+    }
+    else
+        atomic_set(&pgdat->ame_rcounter_n, 0);
+
+    zone = &pgdat->node_zones[ZONE_DEVICE];
+    mark = ame_high_wmark_pages(zone);
+    if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
+        if (atomic_inc_return(&pgdat->ame_rcounter_d) == 60) {
+            atomic_set(&pgdat->ame_rcounter_d, 0);
+            goto do_reclamation;
+        }
+    }
+    else
+        atomic_set(&pgdat->ame_rcounter_d, 0);
+
+    return;
+
+do_reclamation:
+    if (ame_request_mram_reclamation)
+        ame_request_mram_reclamation(pgdat->node_id);
+}
+
+static int ame_reclaimer(void *p)
+{
+    pg_data_t *pgdat = (pg_data_t *)p;
+
+    set_freezable();
+    for ( ; ; ) {
+        bool ret;
+        int ame_ret = -EBUSY;
+
+ame_reclaimer_try_to_sleep:
+        ame_reclaimer_try_to_sleep(pgdat);
+
+        ret = try_to_freeze();
+        if (kthread_should_stop())
+            break;
+
+        if (!atomic_read(&pgdat->ame_nr_ranks))
+            continue;
+
+        ame_reclaimer_try_to_reclaim(pgdat);
+    }
+    return 0;
+}
+
+void ame_reclaimer_run(int nid)
+{
+    pg_data_t *pgdat = NODE_DATA(nid);
+    if (pgdat->ame_reclaimer)
+		return;
+    pgdat->ame_reclaimer = kthread_run(ame_reclaimer, pgdat, "ame_reclaimer%d", nid);
+}
+EXPORT_SYMBOL(ame_reclaimer_run);
+
 /*
  * A zone is low on free memory or too fragmented for high-order memory.  If
  * kswapd should reclaim (direct reclaim is deferred), wake it up for the zone's

@@ -1158,7 +1158,7 @@ static inline bool page_is_devmap_managed(struct page *page)
 {
 	if (!static_branch_unlikely(&devmap_managed_key))
 		return false;
-	if (!is_zone_device_page(page))
+	if (!is_zone_device_page(page) || !PageReserved(page))
 		return false;
 	switch (page->pgmap->type) {
 	case MEMORY_DEVICE_PRIVATE:
@@ -1187,7 +1187,8 @@ static inline bool is_device_private_page(const struct page *page)
 {
 	return IS_ENABLED(CONFIG_DEV_PAGEMAP_OPS) &&
 		IS_ENABLED(CONFIG_DEVICE_PRIVATE) &&
-		is_zone_device_page(page) &&
+		is_zone_device_page((struct page *)page) &&
+        PageReserved((struct page *)page) &&
 		page->pgmap->type == MEMORY_DEVICE_PRIVATE;
 }
 
@@ -1195,7 +1196,8 @@ static inline bool is_pci_p2pdma_page(const struct page *page)
 {
 	return IS_ENABLED(CONFIG_DEV_PAGEMAP_OPS) &&
 		IS_ENABLED(CONFIG_PCI_P2PDMA) &&
-		is_zone_device_page(page) &&
+		is_zone_device_page((struct page *)page) &&
+        PageReserved((struct page *)page) &&
 		page->pgmap->type == MEMORY_DEVICE_PCI_P2PDMA;
 }
 
@@ -1570,7 +1572,7 @@ static inline unsigned long page_to_section(const struct page *page)
 #ifdef CONFIG_MIGRATION
 static inline bool is_pinnable_page(struct page *page)
 {
-	return !(is_zone_movable_page(page) || is_migrate_cma_page(page)) ||
+	return !(is_zone_movable_page(page) || is_migrate_cma_page(page) || is_zone_device_page(page)) ||
 		is_zero_pfn(page_to_pfn(page));
 }
 #else

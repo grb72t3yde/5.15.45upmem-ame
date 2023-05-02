@@ -4035,12 +4035,14 @@ static inline unsigned int gfp_to_alloc_flags_cma(gfp_t gfp_mask,
  * get_page_from_freelist goes through the zonelist trying to allocate
  * a page.
  */
+
 static struct page *
 get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 						const struct alloc_context *ac)
 {
 	struct zoneref *z;
 	struct zone *zone;
+    pg_data_t *pgdat;
 	struct pglist_data *last_pgdat_dirty_limit = NULL;
 	bool no_fallback;
 
@@ -4055,6 +4057,9 @@ retry:
 					ac->nodemask) {
 		struct page *page;
 		unsigned long mark;
+
+        if (zone_is_zone_device(zone) && ((gfp_mask & GFP_HIGHUSER_MOVABLE) != GFP_HIGHUSER_MOVABLE))
+            continue;
 
 		if (cpusets_enabled() &&
 			(alloc_flags & ALLOC_CPUSET) &&
@@ -4079,6 +4084,7 @@ retry:
 		 * will require awareness of nodes in the
 		 * dirty-throttling and the flusher threads.
 		 */
+
 		if (ac->spread_dirty_pages) {
 			if (last_pgdat_dirty_limit == zone->zone_pgdat)
 				continue;
@@ -4109,7 +4115,7 @@ retry:
 		if (!zone_watermark_fast(zone, order, mark,
 				       ac->highest_zoneidx, alloc_flags,
 				       gfp_mask)) {
-			int ret;
+			int ret = -EBUSY;
 
 #ifdef CONFIG_DEFERRED_STRUCT_PAGE_INIT
 			/*
@@ -4127,8 +4133,12 @@ retry:
 				goto try_this_zone;
 
 			if (!node_reclaim_enabled() ||
-			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone))
+			    !zone_allows_reclaim(ac->preferred_zoneref->zone, zone)) {
+                pgdat = zone->zone_pgdat;
+                if (pgdat->ame_manager && zone_idx(zone) == ZONE_NORMAL)
+                    wakeup_ame_manager(zone, order);
 				continue;
+            }
 
 			ret = node_reclaim(zone->zone_pgdat, gfp_mask, order);
 			switch (ret) {
@@ -4651,6 +4661,7 @@ static void wake_all_kswapds(unsigned int order, gfp_t gfp_mask,
 		last_pgdat = zone->zone_pgdat;
 	}
 }
+
 
 static inline unsigned int
 gfp_to_alloc_flags(gfp_t gfp_mask)
@@ -6088,15 +6099,29 @@ static int build_zonerefs_node(pg_data_t *pgdat, struct zoneref *zonerefs)
 	struct zone *zone;
 	enum zone_type zone_type = MAX_NR_ZONES;
 	int nr_zones = 0;
+	struct zone *zone_device = pgdat->node_zones + ZONE_DEVICE;
+    enum zone_type last_inserted_zone_type = MAX_NR_ZONES;
 
 	do {
 		zone_type--;
 		zone = pgdat->node_zones + zone_type;
-		if (populated_zone(zone)) {
+		if (managed_zone(zone)) {
+            if (zone_type == ZONE_DEVICE)
+                continue;
+            if (last_inserted_zone_type == ZONE_NORMAL && managed_zone(zone_device)) {
+                zoneref_set_zone(zone_device, &zonerefs[nr_zones++]);
+                check_highest_zone(zone_type);
+            }
 			zoneref_set_zone(zone, &zonerefs[nr_zones++]);
 			check_highest_zone(zone_type);
+            last_inserted_zone_type = zone_type;
 		}
 	} while (zone_type);
+
+    if (last_inserted_zone_type == ZONE_NORMAL && managed_zone(zone_device)) {
+        zoneref_set_zone(zone_device, &zonerefs[nr_zones++]);
+        check_highest_zone(zone_type);
+    }
 
 	return nr_zones;
 }
@@ -8411,6 +8436,7 @@ static void __setup_per_zone_wmarks(void)
 		zone->watermark_boost = 0;
 		zone->_watermark[WMARK_LOW]  = min_wmark_pages(zone) + tmp;
 		zone->_watermark[WMARK_HIGH] = min_wmark_pages(zone) + tmp * 2;
+		zone->_watermark[AME_WMARK_HIGH] = min_wmark_pages(zone) + tmp * 100;
 
 		spin_unlock_irqrestore(&zone->lock, flags);
 	}
@@ -8839,15 +8865,19 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page,
 		 * allocations inside ZONE_MOVABLE, for example when
 		 * specifying "movablecore".
 		 */
-		if (PageReserved(page))
-			return page;
+		if (PageReserved(page)) {
+            if (is_zone_device_page(page)) /* UPMEM MRAM page */
+                continue;
+            else
+                return page;
+        }
 
 		/*
 		 * If the zone is movable and we have ruled out all reserved
 		 * pages then it should be reasonably safe to assume the rest
 		 * is movable.
 		 */
-		if (zone_idx(zone) == ZONE_MOVABLE)
+		if (zone_idx(zone) == ZONE_MOVABLE || zone_idx(zone) == ZONE_DEVICE)
 			continue;
 
 		/*

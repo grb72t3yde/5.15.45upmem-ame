@@ -110,6 +110,9 @@ extern int mhp_init_memmap_on_memory(unsigned long pfn, unsigned long nr_pages,
 extern void mhp_deinit_memmap_on_memory(unsigned long pfn, unsigned long nr_pages);
 extern int online_pages(unsigned long pfn, unsigned long nr_pages,
 			struct zone *zone, struct memory_group *group);
+/* UPMEM */
+extern int expose_mram_pages(unsigned long pfn, unsigned long nr_pages,
+			struct zone *zone, struct memory_group *group);
 extern struct zone *test_pages_in_a_zone(unsigned long start_pfn,
 					 unsigned long end_pfn);
 extern void __offline_isolated_pages(unsigned long start_pfn,
@@ -301,9 +304,15 @@ static inline void pgdat_resize_init(struct pglist_data *pgdat) {}
 extern void try_offline_node(int nid);
 extern int offline_pages(unsigned long start_pfn, unsigned long nr_pages,
 			 struct memory_group *group);
+/* UPMEM */
+extern int reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
+			 struct memory_group *group, struct dev_pagemap *pgmap);
 extern int remove_memory(u64 start, u64 size);
 extern void __remove_memory(u64 start, u64 size);
 extern int offline_and_remove_memory(u64 start, u64 size);
+void ame_manager_run(int nid);
+void ame_reclaimer_run(int nid);
+void ame_init_node(int nid);
 
 #else
 static inline void try_offline_node(int nid) {}
