@@ -4425,7 +4425,6 @@ ame_manager_try_to_sleep:
         if (ret)
             continue;
 
-        pr_info("wakeup ame manager\n");
         if (ame_request_mram_expansion)
             ame_ret = ame_request_mram_expansion(pgdat->node_id);
 
