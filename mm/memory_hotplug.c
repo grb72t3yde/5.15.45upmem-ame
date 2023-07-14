@@ -1072,7 +1072,7 @@ void mhp_deinit_memmap_on_memory(unsigned long pfn, unsigned long nr_pages)
 }
 
 /* UPMEM */
-int __ref expose_mram_pages(unsigned long pfn, unsigned long nr_pages,
+int __ref borrow_mram_pages(unsigned long pfn, unsigned long nr_pages,
 		       struct zone *zone, struct memory_group *group)
 {
 	unsigned long flags, pfn_it;
@@ -1138,7 +1138,7 @@ failed_addition:
 	mem_hotplug_done();
 	return ret;
 }
-EXPORT_SYMBOL(expose_mram_pages);
+EXPORT_SYMBOL(borrow_mram_pages);
 
 int __ref online_pages(unsigned long pfn, unsigned long nr_pages,
 		       struct zone *zone, struct memory_group *group)
@@ -2113,7 +2113,7 @@ failed_removal:
 	mem_hotplug_done();
 	return ret;
 }
-/* UPMEM */
+/* UPMEM MemBo */
 int __ref reclaim_mram_pages(unsigned long start_pfn, unsigned long nr_pages,
 			struct memory_group *group, struct dev_pagemap *pgmap)
 {
