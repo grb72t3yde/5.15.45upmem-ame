@@ -4405,6 +4405,9 @@ EXPORT_SYMBOL(membo_request_mram_borrowing);
 int (*membo_request_mram_reclamation)(int nid);
 EXPORT_SYMBOL(membo_request_mram_reclamation);
 
+int (*membo_request_mram_reclamation_reservation)(int nid);
+EXPORT_SYMBOL(membo_request_mram_reclamation_reservation);
+
 static int membo_manager(void *p)
 {
     pg_data_t *pgdat = (pg_data_t *)p;
@@ -4438,7 +4441,7 @@ void membo_init_node(int nid)
 {
     pg_data_t *pgdat = NODE_DATA(nid);
 
-    atomic_set(&pgdat->membo_nr_ranks, 0);
+    atomic_set(&pgdat->membo_nr_ltb_ranks, 0);
     atomic_set(&pgdat->membo_mcounter, 0);
     atomic_set(&pgdat->membo_rcounter_n, 0);
     atomic_set(&pgdat->membo_rcounter_d, 0);
@@ -4478,10 +4481,10 @@ static void membo_reclaimer_try_to_sleep(pg_data_t *pgdat)
 
 	prepare_to_wait(&pgdat->membo_reclaimer_wait, &wait, TASK_INTERRUPTIBLE);
     if (!kthread_should_stop()) {
-        if (!atomic_read(&pgdat->membo_nr_ranks))
+        if (!atomic_read(&pgdat->membo_nr_ltb_ranks))
             schedule();
-        else if (atomic_read(&pgdat->membo_is_direct_reclaim_activated) == 0)
-            schedule_timeout(HZ);
+        else
+            schedule_timeout(HZ >> 7);
     }
     finish_wait(&pgdat->membo_reclaimer_wait, &wait);
 }
@@ -4491,14 +4494,16 @@ static void membo_reclaimer_try_to_reclaim(pg_data_t *pgdat)
     unsigned long mark = -1;
     struct zone *zone;
 
+    /* Check if we need to reclaim one MRAM section due to reservation */
+    if (membo_request_mram_reclamation_reservation)
+        membo_request_mram_reclamation_reservation(pgdat->node_id);
+
+    /* Check if we need to reclaim one MRAM section due to exccessive borrowed MRAM pages */
     zone = &pgdat->node_zones[ZONE_NORMAL];
     mark = low_wmark_pages(zone) + (128 << 20)/PAGE_SIZE;
 
-    if (atomic_read(&pgdat->membo_is_direct_reclaim_activated) == 1)
-        goto do_reclamation;
-
     if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-        if (atomic_inc_return(&pgdat->membo_rcounter_n) == 60) {
+        if (atomic_inc_return(&pgdat->membo_rcounter_n) == 100) {
             atomic_set(&pgdat->membo_rcounter_n, 0);
             goto do_reclamation;
         }
@@ -4510,7 +4515,7 @@ static void membo_reclaimer_try_to_reclaim(pg_data_t *pgdat)
     mark = low_wmark_pages(zone) + (128 << 20)/PAGE_SIZE;
 
     if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-        if (atomic_inc_return(&pgdat->membo_rcounter_d) == 60) {
+        if (atomic_inc_return(&pgdat->membo_rcounter_d) == 100) {
             atomic_set(&pgdat->membo_rcounter_d, 0);
             goto do_reclamation;
         }
@@ -4541,7 +4546,7 @@ membo_reclaimer_try_to_sleep:
         if (kthread_should_stop())
             break;
 
-        if (!atomic_read(&pgdat->membo_nr_ranks))
+        if (!atomic_read(&pgdat->membo_nr_ltb_ranks))
             continue;
 
         membo_reclaimer_try_to_reclaim(pgdat);

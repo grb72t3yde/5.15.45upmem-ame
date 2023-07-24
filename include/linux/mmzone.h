@@ -849,7 +849,7 @@ typedef struct pglist_data {
     struct task_struct *membo_manager;
     struct task_struct *membo_reclaimer;
     atomic_t membo_disabled;
-    atomic_t membo_nr_ranks;
+    atomic_t membo_nr_ltb_ranks;
     atomic_t membo_mcounter;
     atomic_t membo_rcounter_n;
     atomic_t membo_rcounter_d;
