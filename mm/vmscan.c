@@ -4376,7 +4376,8 @@ void wakeup_membo_manager(struct zone *zone, int order)
 
     /* We wake membo_manager up only if we don't have enough free pages in ZONE_DEVICE */
     zone_dev = &pgdat->node_zones[ZONE_DEVICE];
-    mark = low_wmark_pages(zone_dev) + (32 << 20)/PAGE_SIZE;
+    //mark = low_wmark_pages(zone_dev) + (32 << 20)/PAGE_SIZE;
+    mark = low_wmark_pages(zone_dev);
 
     if (zone_watermark_ok_safe(zone_dev, order, mark, MAX_NR_ZONES)) {
         atomic_set(&pgdat->membo_mcounter, 0);
@@ -4386,8 +4387,8 @@ void wakeup_membo_manager(struct zone *zone, int order)
     if (atomic_read(&pgdat->membo_disabled))
         return;
 
-    if (atomic_inc_return(&pgdat->membo_mcounter) < 500)
-        return;
+    //if (atomic_inc_return(&pgdat->membo_mcounter) < 1000)
+        //return;
 
     if (order > 5)
         return;
@@ -4484,7 +4485,7 @@ static void membo_reclaimer_try_to_sleep(pg_data_t *pgdat)
         if (!atomic_read(&pgdat->membo_nr_ltb_ranks))
             schedule();
         else
-            schedule_timeout(HZ >> 7);
+            schedule_timeout(HZ/10);
     }
     finish_wait(&pgdat->membo_reclaimer_wait, &wait);
 }
@@ -4500,10 +4501,10 @@ static void membo_reclaimer_try_to_reclaim(pg_data_t *pgdat)
 
     /* Check if we need to reclaim one MRAM section due to exccessive borrowed MRAM pages */
     zone = &pgdat->node_zones[ZONE_NORMAL];
-    mark = low_wmark_pages(zone) + (128 << 20)/PAGE_SIZE;
+    mark = low_wmark_pages(zone) + (1 << 30)/PAGE_SIZE;
 
     if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-        if (atomic_inc_return(&pgdat->membo_rcounter_n) == 100) {
+        if (atomic_inc_return(&pgdat->membo_rcounter_n) == 10) {
             atomic_set(&pgdat->membo_rcounter_n, 0);
             goto do_reclamation;
         }
@@ -4511,17 +4512,19 @@ static void membo_reclaimer_try_to_reclaim(pg_data_t *pgdat)
     else
         atomic_set(&pgdat->membo_rcounter_n, 0);
 
+    /*
     zone = &pgdat->node_zones[ZONE_DEVICE];
-    mark = low_wmark_pages(zone) + (128 << 20)/PAGE_SIZE;
+    mark = low_wmark_pages(zone) + (1600 << 20)/PAGE_SIZE;
 
     if (zone_watermark_ok_safe(zone, 0, mark, MAX_NR_ZONES)) {
-        if (atomic_inc_return(&pgdat->membo_rcounter_d) == 100) {
+        if (atomic_inc_return(&pgdat->membo_rcounter_d) == 10) {
             atomic_set(&pgdat->membo_rcounter_d, 0);
             goto do_reclamation;
         }
     }
     else
         atomic_set(&pgdat->membo_rcounter_d, 0);
+    */
 
     return;
 
