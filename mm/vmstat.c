@@ -1659,7 +1659,8 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   "\n        min      %lu"
 		   "\n        low      %lu"
 		   "\n        high     %lu"
-		   "\n        ame_high %lu"
+		   "\n        membo_low %lu"
+		   "\n        membo_high %lu"
 		   "\n        spanned  %lu"
 		   "\n        present  %lu"
 		   "\n        managed  %lu"
@@ -1668,7 +1669,8 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   min_wmark_pages(zone),
 		   low_wmark_pages(zone),
 		   high_wmark_pages(zone),
-		   ame_high_wmark_pages(zone),
+		   low_wmark_pages(zone) + (32 << 20)/PAGE_SIZE,
+		   low_wmark_pages(zone) + (128 << 20)/PAGE_SIZE,
 		   zone->spanned_pages,
 		   zone->present_pages,
 		   zone_managed_pages(zone),
